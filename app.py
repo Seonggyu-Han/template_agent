@@ -9,7 +9,7 @@ import time
 from datetime import datetime, date
 from decimal import Decimal
 from pathlib import Path
-
+import numpy as np
 import streamlit as st
 from sqlalchemy import text, bindparam
 
@@ -23,6 +23,14 @@ from crm_agent.db.engine import SessionLocal
 from crm_agent.db.repo import Repo
 from crm_agent.flow.workflow import run_until_candidates
 
+# 기존 import 지우고 이걸로 대체하세요
+import sys
+try:
+    # 두 함수 모두 가져오기
+    from JJG.rec_logic.integration import process_ai_recommendation, process_abandoned_cart ,process_repurchase_recommendation
+except ImportError:
+    sys.path.append(str(ROOT)) 
+    from JJG.rec_logic.integration import process_ai_recommendation, process_abandoned_cart ,process_repurchase_recommendation
 
 # -------------------------
 # JSON safe
@@ -34,6 +42,14 @@ def make_json_safe(obj):
         return obj.isoformat()
     if isinstance(obj, Decimal):
         return float(obj)
+    # ▼▼▼ [추가된 부분] numpy 타입 처리 ▼▼▼
+    if isinstance(obj, (np.integer, np.int64)):
+        return int(obj)
+    if isinstance(obj, (np.floating, np.float64)):
+        return float(obj)
+    if isinstance(obj, np.ndarray):
+        return make_json_safe(obj.tolist())
+    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
     if isinstance(obj, dict):
         return {k: make_json_safe(v) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
@@ -597,9 +613,45 @@ def handle_component_event(evt: dict, db, repo: Repo) -> None:
         st.rerun()
 
     if action == "NAVIGATE_STEP4":
-        # run_id는 유지(필요시 payload에서 갱신)
         payload = evt.get("payload") or {}
         rid = (payload.get("run_id") or st.session_state.get("run_id") or "").strip()
+
+        if rid:
+            try:
+                handoff = repo.get_latest_handoff(rid, "BRIEF")
+                if handoff:
+                    brief_data = _json_to_dict(handoff.get("payload_json"))
+                    current_goal = brief_data.get("goal", "").strip() 
+                    
+                    print(f"🏁 현재 Goal: [{current_goal}]")
+                    results = None
+
+                    # 1. AI 추천 (counseling, feature_reco)
+                    if current_goal in ("counseling", "feature_reco"):
+                        print("🚀 AI 추천 로직 실행 (Case 1)")
+                        results = process_ai_recommendation(rid)
+
+                    # 2. 장바구니 이탈 (cart)
+                    elif current_goal == "cart":
+                        print("🚀 장바구니 이탈 로직 실행 (Case 2)")
+                        results = process_abandoned_cart(rid)
+
+                    # 3. 재구매 유도 (repurchase)
+                    elif current_goal == "repurchase":
+                        print("🚀 재구매 유도 로직 실행 (Case 3)")
+                        results = process_repurchase_recommendation(rid)
+                    
+                    else:
+                        print(f"⚠️ 매칭되는 로직 없음 (Goal: {current_goal})")
+
+                    # 결과 저장
+                    if results:
+                        st.session_state["step4_results"] = results
+                        print(f"✅ 결과 {len(results)}건 세션 저장 완료")
+
+            except Exception as e:
+                print(f"❌ 오류 발생: {e}")
+
         if rid:
             st.session_state["run_id"] = rid
         st.session_state["requested_page"] = "Step4(최종 확인 및 발송)"
@@ -899,6 +951,14 @@ elif ui_page == "third":
 elif ui_page == "fourth":
     rid = (st.session_state.get("run_id") or "").strip()
     result = fetch_step4_data(db, repo, rid)
+
+    # ▼▼▼ [이 부분이 핵심입니다] ▼▼▼
+    # 세션에 저장된 결과가 있다면 result 딕셔너리에 추가해서 프론트엔드로 보냅니다.
+    if "step4_results" in st.session_state:
+        result["generated_messages"] = st.session_state["step4_results"]
+    else:
+        result["generated_messages"] = [] # 데이터가 없을 경우 빈 리스트
+    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 else:
     result = {}

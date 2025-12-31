@@ -857,10 +857,77 @@ function bindThirdPage(signal, result) {
 // ----------------------
 // Step4 (fourth) - 최소 바인딩(현재는 렌더만)
 // ----------------------
+// Step4 (fourth) - 최종 결과 렌더링
+// ----------------------
 function bindFourthPage(signal, result) {
-    // fourth.html에 버튼/필드가 생기면 여기서 id 기반으로 이벤트를 추가하면 됩니다.
-    void signal;
-    void result;
+    // 1. HTML에서 내용을 넣을 위치 찾기
+    const container = document.querySelector(".template-content");
+    const tagEl = document.querySelector(".card-tag");
+    if (!container) return;
+
+    // 2. app.py에서 넘겨준 데이터 확인
+    const messages = result?.generated_messages;
+
+    // 데이터가 없을 경우 처리
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+        container.innerHTML = `<div style="padding:16px; text-align:center; color:#64748B;">
+            <i class="bi bi-exclamation-circle"></i> 생성된 메시지가 없습니다.<br/>
+            <small>이전 단계에서 로직이 올바르게 실행되었는지 확인해주세요.</small>
+        </div>`;
+        return;
+    }
+
+    // 3. 상단 태그 업데이트
+    if (tagEl) {
+        tagEl.textContent = `Generated Result - 총 ${messages.length}건 생성 완료`;
+        tagEl.style.background = "#e0f2fe"; // 살짝 파란색 배경으로 강조 (선택 사항)
+        tagEl.style.color = "#0369a1";
+    }
+
+    // 4. 메시지 리스트 HTML 생성
+    let htmlContent = `<div style="display: flex; flex-direction: column; gap: 12px;">`;
+
+    messages.forEach((msg) => {
+        // 엔터(\n)를 <br>로 변환 및 HTML 특수문자 처리 (보안)
+        const safeBody = escapeHtml(msg.message || "").replaceAll("\n", "<br/>");
+        const safeName = escapeHtml(msg.customer_name || "고객");
+        const safeProd = escapeHtml(msg.product_name || "");
+        const safeInfo = msg.debug_info ? escapeHtml(msg.debug_info) : "";
+
+        htmlContent += `
+            <div style="background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #f1f5f9; padding-bottom: 8px;">
+                    <span style="font-weight: 600; color: #334155; display: flex; align-items: center; gap: 6px;">
+                        <i class="bi bi-person-fill" style="color: #64748b;"></i> ${safeName}님
+                    </span>
+                    <div style="text-align: right;">
+                        <span style="font-size: 12px; color: #0f172a; background: #f1f5f9; padding: 3px 8px; border-radius: 12px; font-weight: 500;">
+                            ${safeProd}
+                        </span>
+                        ${safeInfo ? `<div style="font-size: 11px; color: #94a3b8; margin-top: 2px;">${safeInfo}</div>` : ""}
+                    </div>
+                </div>
+                <div style="font-size: 14px; color: #475569; line-height: 1.6;">
+                    ${safeBody}
+                </div>
+            </div>
+        `;
+    });
+
+    htmlContent += `</div>`;
+
+    // 5. HTML 주입
+    container.innerHTML = htmlContent;
+    
+    // (선택 사항) '발송' 버튼 이벤트 연결 예시
+    const sendBtn = document.querySelector(".btn-submit-main");
+    if (sendBtn) {
+        sendBtn.addEventListener("click", (e) => {
+            e.preventDefault();
+            // 실제 발송 액션이 필요하면 여기에 작성
+            alert(`${messages.length}건의 메시지를 발송합니다! (Demo)`);
+        }, { signal });
+    }
 }
 
 // ---- receive render ----
